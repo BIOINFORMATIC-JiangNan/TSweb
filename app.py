@@ -21,7 +21,7 @@ def load_model_and_preprocessor():
     Returns: model, preprocessor, features
     """
     try:
-        # 使用安全的加载方式
+        # Safe loading method for model components
         with open('ts_model.pkl', 'rb') as f:
             model = pickle.load(f)
         with open('preprocessor.pkl', 'rb') as f:
@@ -29,14 +29,14 @@ def load_model_and_preprocessor():
         with open('feature_names.pkl', 'rb') as f:
             features = pickle.load(f)
             
-        # 验证模型类型
+        # Validate model type
         if not isinstance(model, GradientBoostingClassifier):
-            st.error("模型类型不匹配，请确保使用GradientBoostingClassifier")
+            st.error("Model type mismatch. Please ensure using GradientBoostingClassifier")
             return None, None, None
             
         return model, preprocessor, features
     except Exception as e:
-        st.error(f"加载模型时出错: {str(e)}")
+        st.error(f"Error loading model: {str(e)}")
         return None, None, None
 
 def main():
@@ -54,7 +54,7 @@ def main():
     model, preprocessor, features = load_model_and_preprocessor()
     
     if model is None or preprocessor is None or features is None:
-        st.error("模型加载失败，请检查模型文件")
+        st.error("Model loading failed. Please check model files")
         return
 
     # Create two-column layout
@@ -127,11 +127,11 @@ def main():
                 st.subheader("Feature Impact Analysis")
                 
                 try:
-                    # 使用更安全的SHAP计算方式
+                    # Calculate SHAP values using safer method
                     explainer = shap.TreeExplainer(model, feature_names=list(features))
                     shap_values = explainer(input_processed)
                     
-                    # 创建SHAP图
+                    # Create SHAP visualization
                     fig = plt.figure(figsize=(12, 4))
                     shap.plots.waterfall(shap_values[0], max_display=10, show=False)
                     st.pyplot(fig)
@@ -145,11 +145,10 @@ def main():
                     """)
                     
                 except Exception as e:
-                    st.error(f"SHAP分析错误: {str(e)}")
+                    st.error(f"SHAP analysis error: {str(e)}")
                     
             except Exception as e:
-                st.error(f"预测过程出错: {str(e)}")
+                st.error(f"Prediction process error: {str(e)}")
 
 if __name__ == "__main__":
     main()
-
