@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,6 +6,7 @@ import pickle
 import shap
 import matplotlib.pyplot as plt
 from sklearn.ensemble import GradientBoostingClassifier
+import os
 
 # Page configuration
 st.set_page_config(
@@ -21,22 +23,41 @@ def load_model_and_preprocessor():
     Returns: model, preprocessor, features
     """
     try:
-        # Safe loading method for model components
-        with open('ts_model.pkl', 'rb') as f:
-            model = pickle.load(f)
-        with open('preprocessor.pkl', 'rb') as f:
-            preprocessor = pickle.load(f)
-        with open('feature_names.pkl', 'rb') as f:
-            features = pickle.load(f)
-            
-        # Validate model type
+        # 检查文件是否存在
+        if not all(os.path.exists(f) for f in ['ts_model.pkl', 'preprocessor.pkl', 'feature_names.pkl']):
+            st.error("One or more model files are missing")
+            return None, None, None
+
+        # 使用错误处理加载每个组件
+        try:
+            with open('ts_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+        except Exception as e:
+            st.error(f"Error loading model: {str(e)}")
+            return None, None, None
+
+        try:
+            with open('preprocessor.pkl', 'rb') as f:
+                preprocessor = pickle.load(f)
+        except Exception as e:
+            st.error(f"Error loading preprocessor: {str(e)}")
+            return None, None, None
+
+        try:
+            with open('feature_names.pkl', 'rb') as f:
+                features = pickle.load(f)
+        except Exception as e:
+            st.error(f"Error loading feature names: {str(e)}")
+            return None, None, None
+
+        # 验证模型类型
         if not isinstance(model, GradientBoostingClassifier):
             st.error("Model type mismatch. Please ensure using GradientBoostingClassifier")
             return None, None, None
-            
+
         return model, preprocessor, features
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
+        st.error(f"General error in loading components: {str(e)}")
         return None, None, None
 
 def main():
@@ -50,11 +71,11 @@ def main():
     3. System will display Tourette Syndrome risk probability and factor analysis
     """)
 
-    # Load model components
+    # Load model components with error handling
     model, preprocessor, features = load_model_and_preprocessor()
     
     if model is None or preprocessor is None or features is None:
-        st.error("Model loading failed. Please check model files")
+        st.error("Failed to load model components. Please check the model files and versions.")
         return
 
     # Create two-column layout
@@ -127,11 +148,9 @@ def main():
                 st.subheader("Feature Impact Analysis")
                 
                 try:
-                    # Calculate SHAP values using safer method
-                    explainer = shap.TreeExplainer(model, feature_names=list(features))
+                    explainer = shap.TreeExplainer(model)
                     shap_values = explainer(input_processed)
                     
-                    # Create SHAP visualization
                     fig = plt.figure(figsize=(12, 4))
                     shap.plots.waterfall(shap_values[0], max_display=10, show=False)
                     st.pyplot(fig)
