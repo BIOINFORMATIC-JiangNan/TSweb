@@ -75,8 +75,9 @@ def create_input_fields(features):
     
     return inputs
 
-def display_results(prediction_proba):
-    """Display prediction results"""
+def display_results(prediction_proba, shap_values, features, input_processed):
+    """Display prediction results and SHAP force plot"""
+    # Results section
     result_col1, result_col2, result_col3 = st.columns(3)
     
     with result_col1:
@@ -95,6 +96,13 @@ def display_results(prediction_proba):
     
     with result_col3:
         st.progress(prediction_proba)
+
+    # SHAP Force Plot
+    st.markdown("### Feature Impact Analysis")
+    fig_force = plt.figure(figsize=(12, 3))
+    shap.plots.force(shap_values[0], matplotlib=True, show=False)
+    st.pyplot(fig_force)
+    plt.close(fig_force)
 
 def main():
     st.title("🏥 Tourette Syndrome Risk Assessment System")
@@ -120,22 +128,16 @@ def main():
                 input_df = pd.DataFrame([inputs])
                 prediction_proba = float(pipeline.predict_proba(input_df)[0][1])
                 
-                # Display results
-                st.markdown("---")
-                display_results(prediction_proba)
-
-                # SHAP analysis
-                st.subheader("Feature Impact Analysis")
                 # Get processed data and model
                 input_processed = pipeline.named_steps['scaler'].transform(input_df)
                 model = pipeline.named_steps['classifier']
                 
+                # Calculate SHAP values
                 shap_values = calculate_shap_values(model, input_processed)
                 
-                fig = plt.figure(figsize=(12, 4))
-                shap.plots.waterfall(shap_values[0], max_display=10, show=False)
-                st.pyplot(fig)
-                plt.close(fig)
+                # Display results and SHAP force plot
+                st.markdown("---")
+                display_results(prediction_proba, shap_values, features, input_processed)
                 
             except Exception as e:
                 st.error(f"Error during prediction: {str(e)}")
