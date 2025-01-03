@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
-from joblib import load
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 import os
 
 # Page configuration
@@ -14,22 +17,62 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 优化模型加载
-@st.cache_resource(ttl=3600)
-def load_model_components():
-    """Load model components with optimized caching"""
+# 初始化 session state
+if 'pipeline' not in st.session_state:
+    st.session_state.pipeline = None
+if 'features' not in st.session_state:
+    st.session_state.features = None
+if 'model_trained' not in st.session_state:
+    st.session_state.model_trained = False
+
+def train_model():
+    """训练模型并保存到 session state"""
     try:
-        # 加载模型管道
-        pipeline = load('ts_pipeline.joblib')
+        # 读取数据
+        data = pd.read_csv('python.csv')
+        st.success(f"数据加载成功，形状: {data.shape}")
+
+        # 准备特征和目标变量
+        X = data.drop('Group', axis=1)
+        y = data['Group']
         
-        # 加载特征名称
-        features = load('feature_names.joblib')
+        # 保存特征名称
+        st.session_state.features = list(X.columns)
+
+        # 数据集分割
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        # 创建管道
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('classifier', GradientBoostingClassifier(
+                n_estimators=100,
+                learning_rate=0.1,
+                max_depth=3,
+                random_state=42
+            ))
+        ])
+
+        # 训练模型
+        pipeline.fit(X_train, y_train)
         
-        return pipeline, features
+        # 评估模型
+        train_score = pipeline.score(X_train, y_train)
+        test_score = pipeline.score(X_test, y_test)
+        
+        st.success(f"模型训练完成！\n训练集准确率: {train_score:.4f}\n测试集准确率: {test_score:.4f}")
+        
+        # 保存到 session state
+        st.session_state.pipeline = pipeline
+        st.session_state.model_trained = True
+        
+        return True
         
     except Exception as e:
-        st.error(f"Error loading components: {str(e)}")
-        return None, None
+        st.error(f"训练过程出错: {str(e)}")
+        return False
 
 # 优化SHAP计算
 @st.cache_data(ttl=3600)
@@ -91,6 +134,15 @@ def display_results(prediction_proba):
 def main():
     st.title("🏥 Tourette Syndrome Risk Assessment System")
     
+    # 添加训练模型的部分
+    st.sidebar.title("Model Training")
+    if st.sidebar.button("Train Model"):
+        train_model()
+    
+    if not st.session_state.model_trained:
+        st.warning("请先在侧边栏点击 'Train Model' 按钮训练模型")
+        return
+
     st.markdown("""
     ### Instructions
     1. Enter values below
@@ -98,14 +150,8 @@ def main():
     3. View results
     """)
 
-    # 加载模型组件
-    pipeline, features = load_model_components()
-    
-    if not all([pipeline, features]):
-        return
-
     # 创建输入字段
-    inputs = create_input_fields(features)
+    inputs = create_input_fields(st.session_state.features)
 
     # 预测按钮
     if st.button("Predict", type="primary", use_container_width=True):
@@ -113,7 +159,7 @@ def main():
             try:
                 # 数据处理和预测
                 input_df = pd.DataFrame([inputs])
-                prediction_proba = float(pipeline.predict_proba(input_df)[0][1])
+                prediction_proba = float(st.session_state.pipeline.predict_proba(input_df)[0][1])
                 
                 # 显示结果
                 st.markdown("---")
@@ -122,8 +168,8 @@ def main():
                 # SHAP分析
                 st.subheader("Feature Impact Analysis")
                 # 获取预处理后的数据和模型
-                input_processed = pipeline.named_steps['preprocessor'].transform(input_df)
-                model = pipeline.named_steps['classifier']
+                input_processed = st.session_state.pipeline.named_steps['scaler'].transform(input_df)
+                model = st.session_state.pipeline.named_steps['classifier']
                 
                 shap_values = calculate_shap_values(model, input_processed)
                 
@@ -137,3 +183,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
