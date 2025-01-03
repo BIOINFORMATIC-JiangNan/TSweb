@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
 
 # Page configuration
 st.set_page_config(
@@ -25,6 +26,11 @@ def init_model():
     X = data.drop('Group', axis=1)
     y = data['Group']
     
+    # Split data into training and validation sets
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.3, random_state=42
+    )
+    
     # Create and train pipeline
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
@@ -36,8 +42,13 @@ def init_model():
         ))
     ])
     
-    pipeline.fit(X, y)
-    return pipeline, list(X.columns)
+    # Train the model
+    pipeline.fit(X_train, y_train)
+    
+    # Calculate validation accuracy
+    val_accuracy = pipeline.score(X_val, y_val)
+    
+    return pipeline, list(X.columns), val_accuracy, X_val, y_val
 
 # Optimize SHAP calculations
 @st.cache_data
@@ -45,7 +56,6 @@ def calculate_shap_values(_model, _input_processed, feature_names):
     """Cache SHAP calculations"""
     explainer = shap.TreeExplainer(_model)
     shap_values = explainer(_input_processed)
-    # 设置特征名称
     shap_values.feature_names = feature_names
     return shap_values
 
@@ -78,7 +88,7 @@ def create_input_fields(features):
     
     return inputs
 
-def display_results(prediction_proba):
+def display_results(prediction_proba, val_accuracy):
     """Display prediction results"""
     result_col1, result_col2, result_col3 = st.columns(3)
     
@@ -97,6 +107,10 @@ def display_results(prediction_proba):
         )
     
     with result_col3:
+        st.metric(
+            label="Model Validation Accuracy",
+            value=f"{val_accuracy:.1%}"
+        )
         st.progress(prediction_proba)
 
 def main():
@@ -109,31 +123,42 @@ def main():
     3. View results
     """)
 
-    # Initialize model
-    pipeline, features = init_model()
+    # Initialize model and get validation data
+    pipeline, features, val_accuracy, X_val, y_val = init_model()
 
     # Create input fields
     inputs = create_input_fields(features)
+
+    # Add a selector for input method
+    input_method = st.radio(
+        "Select input method:",
+        ["Manual Input", "Random Validation Sample"]
+    )
 
     # Predict button
     if st.button("Predict", type="primary", use_container_width=True):
         with st.spinner('Analyzing...'):
             try:
-                # Process data and predict
-                input_df = pd.DataFrame([inputs])
+                if input_method == "Manual Input":
+                    input_df = pd.DataFrame([inputs])
+                else:
+                    # Randomly select a sample from validation set
+                    random_idx = np.random.randint(len(X_val))
+                    input_df = X_val.iloc[[random_idx]]
+                    true_label = y_val.iloc[random_idx]
+                    st.info(f"True label for this validation sample: {true_label}")
+
                 prediction_proba = float(pipeline.predict_proba(input_df)[0][1])
                 
                 # Display results
                 st.markdown("---")
-                display_results(prediction_proba)
+                display_results(prediction_proba, val_accuracy)
 
                 # SHAP analysis
                 st.subheader("Feature Impact Analysis")
-                # Get processed data and model
                 input_processed = pipeline.named_steps['scaler'].transform(input_df)
                 model = pipeline.named_steps['classifier']
                 
-                # 传入特征名称
                 shap_values = calculate_shap_values(model, input_processed, features)
                 
                 fig = plt.figure(figsize=(12, 4))
