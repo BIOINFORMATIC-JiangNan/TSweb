@@ -1,91 +1,79 @@
-# app.py
+# Import required libraries
+# Streamlit for creating web applications
 import streamlit as st
+# Pandas for data manipulation and analysis
 import pandas as pd
+# NumPy for numerical operations
 import numpy as np
+# Pickle for model serialization
 import pickle
+# SHAP for model interpretability
 import shap
+# Matplotlib for plotting
 import matplotlib.pyplot as plt
+# GradientBoostingClassifier for the ML model
 from sklearn.ensemble import GradientBoostingClassifier
+# OS for file operations
 import os
 
-# Page configuration
+# Configure the Streamlit page settings
 st.set_page_config(
     page_title="Tourette Syndrome Risk Assessment",
     page_icon="🏥",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"  # Collapse sidebar by default for faster loading
 )
 
-# Load model and preprocessor
-@st.cache_resource
+# Optimize model loading with caching
+@st.cache_resource(ttl=3600)  # Cache for 1 hour
 def load_model_and_preprocessor():
-    """
-    Load the saved model, preprocessor, and feature names from pickle files
-    Returns: model, preprocessor, features
-    """
+    """Load model components with optimized caching"""
+    files = {
+        'ts_model.pkl': None,
+        'preprocessor.pkl': None,
+        'feature_names.pkl': None
+    }
+    
     try:
-        # 检查文件是否存在
-        if not all(os.path.exists(f) for f in ['ts_model.pkl', 'preprocessor.pkl', 'feature_names.pkl']):
-            st.error("One or more model files are missing")
-            return None, None, None
-
-        # 使用错误处理加载每个组件
-        try:
-            with open('ts_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-        except Exception as e:
-            st.error(f"Error loading model: {str(e)}")
-            return None, None, None
-
-        try:
-            with open('preprocessor.pkl', 'rb') as f:
-                preprocessor = pickle.load(f)
-        except Exception as e:
-            st.error(f"Error loading preprocessor: {str(e)}")
-            return None, None, None
-
-        try:
-            with open('feature_names.pkl', 'rb') as f:
-                features = pickle.load(f)
-        except Exception as e:
-            st.error(f"Error loading feature names: {str(e)}")
-            return None, None, None
-
-        # 验证模型类型
+        # Batch load files
+        for filename in files.keys():
+            if not os.path.exists(filename):
+                st.error(f"Missing file: {filename}")
+                return None, None, None
+            
+            with open(filename, 'rb') as f:
+                files[filename] = pickle.load(f)
+        
+        model = files['ts_model.pkl']
+        preprocessor = files['preprocessor.pkl']
+        features = files['feature_names.pkl']
+        
+        # Validate model type
         if not isinstance(model, GradientBoostingClassifier):
-            st.error("Model type mismatch. Please ensure using GradientBoostingClassifier")
+            st.error("Invalid model type")
             return None, None, None
-
+            
         return model, preprocessor, features
+        
     except Exception as e:
-        st.error(f"General error in loading components: {str(e)}")
+        st.error(f"Error loading components: {str(e)}")
         return None, None, None
 
-def main():
-    st.title("🏥 Tourette Syndrome Risk Assessment System")
-    
-    # Add instructions
-    st.markdown("""
-    ### Instructions
-    1. Enter the test indicator values below
-    2. Click "Predict" button to get assessment results
-    3. System will display Tourette Syndrome risk probability and factor analysis
-    """)
+# Optimize SHAP calculations with caching
+@st.cache_data(ttl=3600)
+def calculate_shap_values(model, input_processed):
+    """Cache SHAP calculations"""
+    explainer = shap.TreeExplainer(model)
+    return explainer(input_processed)
 
-    # Load model components with error handling
-    model, preprocessor, features = load_model_and_preprocessor()
-    
-    if model is None or preprocessor is None or features is None:
-        st.error("Failed to load model components. Please check the model files and versions.")
-        return
-
-    # Create two-column layout
-    col1, col2 = st.columns(2)
-
-    # Split features into two halves
-    half = len(features) // 2
+def create_input_fields(features, half):
+    """Create input fields for features"""
     inputs = {}
     
-    # First column inputs
+    # Create two-column layout
+    col1, col2 = st.columns(2)
+    
+    # First column of inputs
     with col1:
         st.subheader("Indicators Input (1/2)")
         for feature in features[:half]:
@@ -93,10 +81,10 @@ def main():
                 feature,
                 value=0.0,
                 format="%.2f",
-                help=f"Enter value for {feature}"
+                key=f"input_{feature}"  # Add unique key for each input
             )
-
-    # Second column inputs
+    
+    # Second column of inputs
     with col2:
         st.subheader("Indicators Input (2/2)")
         for feature in features[half:]:
@@ -104,70 +92,83 @@ def main():
                 feature,
                 value=0.0,
                 format="%.2f",
-                help=f"Enter value for {feature}"
+                key=f"input_{feature}"  # Add unique key for each input
             )
+    
+    return inputs
+
+def display_results(prediction_proba):
+    """Display prediction results"""
+    # Create three columns for results
+    result_col1, result_col2, result_col3 = st.columns(3)
+    
+    # Display probability
+    with result_col1:
+        st.metric(
+            label="TS Risk Probability",
+            value=f"{prediction_proba:.1%}"
+        )
+    
+    # Display risk level
+    with result_col2:
+        risk_level = "High Risk" if prediction_proba > 0.5 else "Low Risk"
+        st.metric(
+            label="Risk Level",
+            value=risk_level,
+            delta="Needs Attention" if prediction_proba > 0.5 else "Good Status"
+        )
+    
+    # Display progress bar
+    with result_col3:
+        st.progress(prediction_proba)
+
+def main():
+    # Set up main title
+    st.title("🏥 Tourette Syndrome Risk Assessment System")
+    
+    # Display instructions
+    st.markdown("""
+    ### Instructions
+    1. Enter values below
+    2. Click "Predict"
+    3. View results
+    """)
+
+    # Load model components
+    model, preprocessor, features = load_model_and_preprocessor()
+    
+    if not all([model, preprocessor, features]):
+        return
+
+    # Create input fields
+    inputs = create_input_fields(features, len(features) // 2)
 
     # Prediction button
-    if st.button("Predict", type="primary"):
+    if st.button("Predict", type="primary", use_container_width=True):
         with st.spinner('Analyzing...'):
             try:
-                # Convert inputs to DataFrame
+                # Process input data and make prediction
                 input_df = pd.DataFrame([inputs])
-                
-                # Preprocess input data
                 input_processed = preprocessor.transform(input_df)
-                
-                # Make prediction
                 prediction_proba = float(model.predict_proba(input_processed)[0][1])
                 
                 # Display results
                 st.markdown("---")
-                st.subheader("Prediction Results")
-                
-                # Three-column layout for results
-                result_col1, result_col2, result_col3 = st.columns(3)
-                
-                with result_col1:
-                    st.metric(
-                        label="TS Risk Probability",
-                        value=f"{prediction_proba:.1%}"
-                    )
-                
-                with result_col2:
-                    risk_level = "High Risk" if prediction_proba > 0.5 else "Low Risk"
-                    st.metric(
-                        label="Risk Level",
-                        value=risk_level,
-                        delta="Needs Attention" if prediction_proba > 0.5 else "Good Status"
-                    )
-                
-                with result_col3:
-                    st.progress(prediction_proba)
+                display_results(prediction_proba)
 
-                # SHAP value explanation
+                # SHAP analysis and visualization
                 st.subheader("Feature Impact Analysis")
+                shap_values = calculate_shap_values(model, input_processed)
                 
-                try:
-                    explainer = shap.TreeExplainer(model)
-                    shap_values = explainer(input_processed)
-                    
-                    fig = plt.figure(figsize=(12, 4))
-                    shap.plots.waterfall(shap_values[0], max_display=10, show=False)
-                    st.pyplot(fig)
-                    plt.clf()
-                    
-                    st.markdown("""
-                    **Plot Interpretation**:
-                    - Red indicates features increasing TS risk
-                    - Blue indicates features decreasing TS risk
-                    - Bar width represents feature impact magnitude
-                    """)
-                    
-                except Exception as e:
-                    st.error(f"SHAP analysis error: {str(e)}")
-                    
+                # Create and display SHAP plot
+                fig = plt.figure(figsize=(12, 4))
+                shap.plots.waterfall(shap_values[0], max_display=10, show=False)
+                st.pyplot(fig)
+                plt.close(fig)  # Explicitly close figure to free memory
+                
             except Exception as e:
-                st.error(f"Prediction process error: {str(e)}")
+                st.error(f"Error during prediction: {str(e)}")
 
+# Entry point of the application
 if __name__ == "__main__":
     main()
